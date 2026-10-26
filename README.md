@@ -18,7 +18,7 @@ prefixes added, nothing minified); with `:css nil`, it is written as the
 files are.
 
 ```clojure
-io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.4.5" :git/sha "268e20f"}
+io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.5.0" :git/sha "e6286f6"}
 ```
 
 Two halves, two public namespaces. **The build**, `groundwork-browser-build.api`,
@@ -34,7 +34,7 @@ production runs without shadow-cljs.
 
 ```clojure
 ;; deps.edn: the page half, which the server runs
-:deps {io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.4.5" :git/sha "268e20f" :deps/root "page"}}
+:deps {io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.5.0" :git/sha "e6286f6" :deps/root "page"}}
 ```
 
 ## The api
@@ -51,8 +51,8 @@ production runs without shadow-cljs.
 
 ```clojure
 ;; deps.edn: the build aliases, never :deps
-:browser-build   {:extra-deps {io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.4.5" :git/sha "268e20f"}}}
-:browser-release {:extra-deps {io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.4.5" :git/sha "268e20f"}}
+:browser-build   {:extra-deps {io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.5.0" :git/sha "e6286f6"}}}
+:browser-release {:extra-deps {io.github.p4ulcristian/groundwork-browser-build {:git/tag "v0.5.0" :git/sha "e6286f6"}}
                   :exec-fn    groundwork-browser-build.api/build-for-release!
                   :exec-args  {:modules            {:base {:entries [app.browser.base] :depends-on #{} :start nil}   ; the root
                                                      :shop {:entries [app.shop.boot] :depends-on #{:base} :start app.shop.boot/start!}
