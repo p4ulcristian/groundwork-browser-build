@@ -1,5 +1,7 @@
 # A module names its start
 
+> **Changed in part** by [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md) (2026-10-26, v0.5.0): the build's `:entry` is gone; the root module names its `:start` as every module does, and a page module's start may be its app's start.
+
 > The lean of Iron Rainbow's port (GROUNDWORK-GAPS.md, G2), mechanical: built without a separate ask, 2026-10-23. Adds to [A build has modules loaded on demand, each styled first](2026-10-23-a-build-has-modules-loaded-on-demand-each-styled-first.md). Built on tidy-up, not released: browser-build; the composer's part comes later.
 
 **What was wrong:** 11 of Iron Rainbow's modules have a start: Flex's installs the error reporter, registers Flex's registry and dispatches `[:flex.shell/started]`. A module was `{:entries :depends-on}`; only main had a start (the build's `:entry`).

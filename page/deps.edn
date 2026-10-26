@@ -1,0 +1,9 @@
+;; groundwork-browser-build's page half: which files a page links, read from the
+;; manifests the build wrote. The one part an app's server runs in production,
+;; so it brings no shadow-cljs: an app takes it in :deps with :deps/root "page",
+;; and the whole library (whose :paths hold this folder too) in its build aliases.
+{:paths ["source-code"]
+
+ :deps
+ {;; the options, checked
+  metosin/malli {:mvn/version "0.20.3"}}}

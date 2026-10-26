@@ -1,5 +1,7 @@
 # showroom is its own library
 
+> **Changed in part** by [files-for-page is the one reader of the build's manifests](2026-10-26-files-for-page-is-the-one-reader-of-the-manifests.md) (2026-10-26, v0.5.0): a second public namespace, `groundwork-browser-build.page`, in its own deps root (`page/`, malli only), which an app's server takes in production with `:deps/root "page"`; the build, with shadow-cljs, stays out of production.
+
 > **Changed in part** by [Every value that sets behaviour is a setting](2026-10-22-every-value-that-sets-behaviour-is-a-setting.md) (2026-10-22, v0.1.1): its `deps.edn` names malli too, which checks the options.
 
 > Changes in part [The browser build is Groundwork's](2026-10-22-the-browser-build-is-groundworks.md) and [A def names its stylesheet, as a query names its .sql file](2026-10-22-a-def-names-its-stylesheet-as-a-query-names-its-sql.md): their names, and how shadow-cljs is kept out of production.

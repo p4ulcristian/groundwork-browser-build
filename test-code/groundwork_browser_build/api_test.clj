@@ -1,16 +1,20 @@
 (ns groundwork-browser-build.api-test
-  "Release builds of small entries: the code compiles, optimized, into one
-   file with a hashed name and its manifest; the named stylesheet becomes
-   the bundle; a missing or an unnamed stylesheet stops the build. Every
-   option is required. And one watch: compiled, a saved stylesheet
-   rebundled, a saved namespace compiled again, stopped."
+  "Release builds of small builds: the code compiles, optimized, into a
+   file per module with a hashed name and its manifest; the named
+   stylesheets become each module's bundle; a missing or an unnamed
+   stylesheet stops the build. A build with several page modules: the
+   files a page links, for each module it may start with, in dependency
+   order. Every option is required. And one watch: compiled, the files a
+   page links, a saved stylesheet rebundled, a saved namespace compiled
+   again, stopped."
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.test :refer [deftest is testing]]
    [groundwork-browser-build.api :as browser-build]
-   [groundwork-browser-build.lightningcss :as lightningcss])
+   [groundwork-browser-build.lightningcss :as lightningcss]
+   [groundwork-browser-build.page :as page])
   (:import
    (java.net ServerSocket)
    (java.nio.file Files)
@@ -19,13 +23,20 @@
 
 (deftest the-names-of-the-api
   (is (= '#{make-build start-watching! stop-watching! build-for-release! use-stylesheet}
-         (set (keys (ns-publics 'groundwork-browser-build.api))))))
+         (set (keys (ns-publics 'groundwork-browser-build.api)))))
+  (is (= '#{files-for-page stylesheets-for-load-module page-options-shape load-module-options-shape}
+         (set (keys (ns-publics 'groundwork-browser-build.page))))
+      "the page half, which an app's server runs in production"))
 
 (defn- make-folder [] (str (Files/createTempDirectory "browser-build-build" (make-array FileAttribute 0))))
 
-(defn- make-release-options [entry]
-  {:entry              entry
-   :modules            {}
+(defn- make-one-module
+  "A build of one module, the root, starting at start."
+  [start]
+  {:main {:entries [(symbol (namespace start))] :depends-on #{} :start start}})
+
+(defn- make-release-options [start]
+  {:modules            (make-one-module start)
    :files-folder       (make-folder)
    :cache-folder       (make-folder)
    :compile-threads    2
@@ -47,8 +58,12 @@
 
 (defn- make-watch-options []
   {:log                       log
-   :entry                     'groundwork-browser-build.watch-check.entry/start!
-   :modules                   {}
+   :modules                   {:base {:entries    '[groundwork-browser-build.watch-check.entry]
+                                      :depends-on #{}
+                                      :start      'groundwork-browser-build.watch-check.entry/start!}
+                               :page {:entries    '[groundwork-browser-build.watch-check.page]
+                                      :depends-on #{:base}
+                                      :start      'groundwork-browser-build.watch-check.page/start!}}
    :files-folder              (make-folder)
    :cache-folder              (make-folder)
    :compile-threads           2
@@ -91,35 +106,122 @@
     (let [[{:keys [output-name]}] (edn/read-string (slurp (io/file files-folder "css" "manifest.edn")))
           css (io/file files-folder "css" output-name)]
       (is (re-matches #"main\.[0-9A-F]{16}\.css" output-name))
-      (is (= "/*! browser_build/build_check.css */\n.build-check { color: rebeccapurple; }\n" (slurp css))
+      (is (= "/*! groundwork_browser_build/build_check.css */\n.build-check { color: rebeccapurple; }\n" (slurp css))
           "the named stylesheet, whole, as written: :css nil")
       (is (= (slurp css) (gunzip (str css ".gz")))))))
 
-(deftest a-release-build-with-a-module-loaded-on-demand
-  (let [{:keys [files-folder] :as options} (assoc (make-release-options 'groundwork-browser-build.modules-check.main/start!)
-                                                  :modules {:admin {:entries    '[groundwork-browser-build.modules-check.admin]
-                                                                    :depends-on #{:main}
-                                                                    :start      'groundwork-browser-build.modules-check.admin/start!}})]
+(def ^:private pages-modules
+  "A root, two page modules (the site, the shop), a chunk with the page
+   for the shop and on demand for the site, the site's sheets on demand,
+   and a module only ever loaded on demand."
+  '{:base        {:entries [groundwork-browser-build.pages-check.base] :depends-on #{} :start groundwork-browser-build.pages-check.base/start!}
+    :sheets      {:entries [groundwork-browser-build.pages-check.sheets] :depends-on #{:base} :start nil}
+    :site        {:entries [groundwork-browser-build.pages-check.site] :depends-on #{:base} :start groundwork-browser-build.pages-check.site/start!}
+    :shop        {:entries [groundwork-browser-build.pages-check.shop] :depends-on #{:base :sheets} :start groundwork-browser-build.pages-check.shop/start!}
+    :site-sheets {:entries [groundwork-browser-build.pages-check.site-sheets] :depends-on #{:site :sheets}
+                  :start groundwork-browser-build.pages-check.site-sheets/start!}
+    :qr          {:entries [groundwork-browser-build.pages-check.qr] :depends-on #{:base} :start groundwork-browser-build.pages-check.qr/start!}})
+
+(defn- is-after-its-dependencies?
+  "Whether each module's file comes after those of the modules it depends on."
+  [paths]
+  (let [position (into {} (map-indexed (fn [i path] [(keyword (first (str/split (last (str/split path #"/")) #"\."))) i])) paths)]
+    (every? (fn [[module-id i]] (every? #(< (position %) i) (get-in pages-modules [module-id :depends-on]))) position)))
+
+(deftest a-release-build-with-page-modules
+  (let [{:keys [files-folder] :as options} (assoc (make-release-options 'groundwork-browser-build.build-check/start!)
+                                                  :modules pages-modules)]
     (with-out-str (browser-build/build-for-release! options))
     (let [js-files  (edn/read-string (slurp (io/file files-folder "js" "manifest.edn")))
           css-files (edn/read-string (slurp (io/file files-folder "css" "manifest.edn")))
-          js-of     #(slurp (io/file files-folder "js" (:output-name (first (filter (fn [f] (= % (:module-id f))) js-files)))))
-          css-of    #(slurp (io/file files-folder "css" (:output-name (first (filter (fn [f] (= % (:module-id f))) css-files)))))]
-      (is (= [:admin :main] (sort (map :module-id js-files))) "two modules, each its own file")
-      (is (= [:admin :main] (map :module-id css-files)) "and each its own stylesheet bundle")
-      (is (every? #(re-matches #"(main|admin)\.[0-9A-F]+\.css" (:output-name %)) css-files))
-      (is (= "/*! browser_build/modules_check/main.css */
-.main-check { color: rebeccapurple; }
-" (css-of :main)))
-      (is (= "/*! browser_build/modules_check/admin.css */
-.admin-check { color: tomato; }
-" (css-of :admin)))
-      (is (str/includes? (js-of :admin) "admin-module-here") "the module's code in its own file")
-      (is (str/includes? (js-of :admin) "admin-start-here") "its :start kept and run, not dropped as unused")
-      (is (not (str/includes? (js-of :main) "admin-module-here")) "not in main")
-      (is (str/includes? (js-of :main) (:output-name (first (filter #(= :admin (:module-id %)) js-files))))
-          "main knows where the module's hashed file is, for the loader")
-      (is (every? #(.exists (io/file files-folder "css" (str (:output-name %) ".gz"))) css-files) "gzipped too"))))
+          name-of   (fn [files module-id] (:output-name (first (filter #(= module-id (:module-id %)) files))))
+          js-of     #(slurp (io/file files-folder "js" (name-of js-files %)))
+          css-of    #(slurp (io/file files-folder "css" (name-of css-files %)))
+          on-disk?  #(.exists (io/file files-folder (subs % 1)))
+          files-of  #(page/files-for-page {:files-folder files-folder :module %})]
+      (is (= #{:base :sheets :site :shop :site-sheets :qr} (set (map :module-id js-files)) (set (map :module-id css-files)))
+          "every module its own file and its own stylesheet bundle")
+      (testing "a page links its module and every one it depends on, in dependency order, the hashed names"
+        (is (= {:stylesheets [(str "/css/" (name-of css-files :base)) (str "/css/" (name-of css-files :site))]
+                :scripts     [(str "/js/" (name-of js-files :base)) (str "/js/" (name-of js-files :site))]}
+               (files-of :site))
+            "the site: the root, then the site; not the sheets, which it loads on demand")
+        (is (= {:stylesheets (mapv #(str "/css/" (name-of css-files %)) [:base :sheets :shop])
+                :scripts     (mapv #(str "/js/" (name-of js-files %)) [:base :sheets :shop])}
+               (files-of :shop))
+            "the shop: the sheets with the page")
+        (is (re-matches #"/js/shop\.[0-9A-F]{32}\.js" (last (:scripts (files-of :shop)))))
+        (is (re-matches #"/css/shop\.[0-9A-F]{16}\.css" (last (:stylesheets (files-of :shop)))))
+        (let [{:keys [stylesheets scripts]} (files-of :site-sheets)]
+          (is (= #{:base :site :sheets :site-sheets}
+                 (set (map #(keyword (first (str/split (last (str/split % #"/")) #"\."))) scripts))))
+          (is (is-after-its-dependencies? scripts) "any module can start a page, each file after those it depends on")
+          (is (is-after-its-dependencies? stylesheets))
+          (is (every? on-disk? (concat scripts stylesheets)) "each path is a built file, served from the files folder at /")))
+      (testing "the code of a shared chunk stays in its module"
+        (is (str/includes? (js-of :sheets) "sheets-module-here"))
+        (is (not-any? #(str/includes? (js-of %) "sheets-module-here") [:base :site :shop :site-sheets :qr]))
+        (is (str/includes? (js-of :qr) "qr-start-here") "an on-demand module's :start kept and run, not dropped as unused")
+        (is (str/includes? (js-of :base) (name-of js-files :qr)) "the root knows where each module's hashed file is, for the loader"))
+      (testing "each module's own stylesheets in its bundle"
+        (is (= "/*! groundwork_browser_build/pages_check/base.css */
+.base-check { color: rebeccapurple; }
+
+/*! groundwork_browser_build/pages_check/shared.css */
+.shared-check { color: navy; }
+" (css-of :base))
+            "one named by two sibling pages is in the module both load, the root, so whichever page loads has it")
+        (is (= "/*! groundwork_browser_build/pages_check/sheets.css */
+.sheets-check { color: teal; }
+" (css-of :sheets)))
+        (is (= "/*! groundwork_browser_build/pages_check/site.css */
+.site-check { color: tomato; }
+" (css-of :site)))
+        (is (= "/*! groundwork_browser_build/pages_check/shop.css */
+.shop-check { color: olive; }
+" (css-of :shop)))
+        (is (= "" (css-of :site-sheets)) "a module that names none has an empty bundle")
+        (is (every? #(.exists (io/file files-folder "css" (str (:output-name %) ".gz"))) css-files) "gzipped too"))
+      (testing "load-module! is handed every module's bundle"
+        (is (= (into (sorted-map) (map (fn [{:keys [module-id output-name]}] [(name module-id) (str "/css/" output-name)])) css-files)
+               (page/stylesheets-for-load-module {:files-folder files-folder})))
+        (is (= ["base" "qr" "sheets" "shop" "site" "site-sheets"]
+               (keys (page/stylesheets-for-load-module {:files-folder files-folder})))))
+      (testing "refusals, named"
+        (is (= {:type :groundwork-browser-build/unknown-module}
+               (select-keys (find-refusal #(files-of :admin)) [:type])))
+        (is (= [:base :qr :sheets :shop :site :site-sheets]
+               (try (files-of :admin) (catch clojure.lang.ExceptionInfo e (:modules (ex-data e)))))
+            "naming the modules the build has")
+        (is (= {:type :groundwork-browser-build/bad-options :errors {:module ["should be a keyword"] :folder ["disallowed key"]
+                                                                     :files-folder ["missing required key"]}}
+               (find-refusal #(page/files-for-page {:folder files-folder :module "site"}))))
+        (is (= :groundwork-browser-build/not-built
+               (:type (find-refusal #(page/files-for-page {:files-folder (make-folder) :module :site}))))
+            "no manifest: build first")))))
+
+(deftest a-build-has-one-root-and-every-other-module-depends-on-it
+  (let [problems #(get-in (find-refusal (fn [] (browser-build/make-build :release (assoc (make-release-options 'app.main/start!) :modules %))))
+                          [:errors :modules])]
+    (is (= ["no root: one module, which every other depends on, has :depends-on #{}"]
+           (problems {})))
+    (is (= ["more than one root, each with :depends-on #{}: [:a :b]; one depends on nothing, every other on it"]
+           (problems '{:a {:entries [app.a] :depends-on #{} :start nil}
+                       :b {:entries [app.b] :depends-on #{} :start nil}})))
+    (is (= ["depend on modules the build doesn't have: {:b [:nosuch]}"]
+           (problems '{:a {:entries [app.a] :depends-on #{} :start nil}
+                       :b {:entries [app.b] :depends-on #{:a :nosuch} :start nil}})))
+    (is (= ["depend on each other in a circle: :b -> :c -> :b"]
+           (problems '{:a {:entries [app.a] :depends-on #{} :start nil}
+                       :b {:entries [app.b] :depends-on #{:a :c} :start nil}
+                       :c {:entries [app.c] :depends-on #{:b} :start nil}})))
+    (is (= ["no root: one module, which every other depends on, has :depends-on #{}; depend on each other in a circle: :a -> :a"]
+           (problems '{:a {:entries [app.a] :depends-on #{:a} :start nil}}))
+        "every problem at once")
+    (is (= {:modules {:a {:start ["missing required key"]}}}
+           (:errors (find-refusal #(browser-build/make-build :release (assoc (make-release-options 'app.main/start!)
+                                                                        :modules '{:a {:entries [app.a] :depends-on #{}}})))))
+        "the root names its start too, nil for none")))
 
 (def ^:private targets "chrome >= 119, safari >= 16.4, firefox >= 128")
 
@@ -149,7 +251,7 @@
     (with-out-str (browser-build/build-for-release! options))
     (let [[{:keys [output-name]}] (edn/read-string (slurp (io/file files-folder "css" "manifest.edn")))
           css (slurp (io/file files-folder "css" output-name))]
-      (is (str/includes? css "/*! browser_build/css_check/entry.css */") "the comment naming the file, kept")
+      (is (str/includes? css "/*! groundwork_browser_build/css_check/entry.css */") "the comment naming the file, kept")
       (is (str/includes? css ".css-check .title {") "nesting flattened, for Safari 16.4")
       (is (str/includes? css "-webkit-backdrop-filter: blur(4px);") "the prefix Safari needs")
       (is (str/includes? css "color: tomato;") "not minified")
@@ -220,11 +322,15 @@
 
 (deftest every-option-is-required
   (testing "build-for-release! names each missing option, before anything is built"
-    (let [{:keys [type errors]} (find-refusal #(browser-build/build-for-release! {:entry 'app.browser.main/start! :files-folder "target/public"}))]
+    (let [{:keys [type errors]} (find-refusal #(browser-build/build-for-release! {:modules (make-one-module 'app.browser.main/start!)
+                                                                                  :files-folder "target/public"}))]
       (is (= :groundwork-browser-build/bad-options type))
-      (is (= #{:modules :cache-folder :compile-threads :output-feature-set :resolve :closure-defines :warnings-as-errors
+      (is (= #{:cache-folder :compile-threads :output-feature-set :resolve :closure-defines :warnings-as-errors
                :silenced-warnings :css :lightningcss-download-timeout-ms :source-maps? :gzip-level}
              (set (keys errors))))))
+  (testing "a build has no :entry: the root module's :start is the page's first"
+    (is (= {:entry ["disallowed key"]}
+           (:errors (find-refusal #(browser-build/make-build :release (assoc (make-release-options 'app.main/start!) :entry 'app.main/start!)))))))
   (testing "start-watching! names each missing option, before shadow-cljs starts"
     (let [{:keys [type errors]} (find-refusal #(browser-build/start-watching! (dissoc (make-watch-options) :devtools-host :hud :nrepl :log)))]
       (is (= :groundwork-browser-build/bad-options type))
@@ -238,16 +344,17 @@
              (select-keys (:devtools build) [:autoload :hud :reload-strategy]))))
     (is (= :advanced (get-in (browser-build/make-build :release (make-release-options 'groundwork-browser-build.build-check/start!))
                              [:compiler-options :optimizations])))
-    (is (= {:main  {:init-fn 'app.main/start!}
+    (is (= {:main  {:entries '[app.main] :depends-on #{} :init-fn 'app.main/start!}
             :admin {:entries '[app.admin] :depends-on #{:main} :init-fn 'app.admin/start!}
             :quiet {:entries '[app.quiet] :depends-on #{:main}}}
-           (:modules (browser-build/make-build :release (assoc (make-release-options 'app.main/start!)
-                                                          :modules {:admin {:entries '[app.admin] :depends-on #{:main} :start 'app.admin/start!}
-                                                                    :quiet {:entries '[app.quiet] :depends-on #{:main} :start nil}}))))
+           (:modules (browser-build/make-build :release (update (make-release-options 'app.main/start!)
+                                                          :modules assoc
+                                                          :admin {:entries '[app.admin] :depends-on #{:main} :start 'app.admin/start!}
+                                                          :quiet {:entries '[app.quiet] :depends-on #{:main} :start nil}))))
         "a module's :start is its :init-fn; nil, none")
     (is (= {:modules {:admin {:start ["missing required key"]}}}
-           (:errors (find-refusal #(browser-build/make-build :release (assoc (make-release-options 'app.main/start!)
-                                                                        :modules {:admin {:entries '[app.admin] :depends-on #{:main}}})))))
+           (:errors (find-refusal #(browser-build/make-build :release (update (make-release-options 'app.main/start!)
+                                                                        :modules assoc :admin {:entries '[app.admin] :depends-on #{:main}})))))
         "a module names its start, nil for none")
     (let [build (browser-build/make-build :release (assoc (make-release-options 'groundwork-browser-build.build-check/start!)
                                                      :resolve {"process" {:target :file :file "shim.js"} "@maptiler/sdk" false}
@@ -301,13 +408,23 @@
         output     (java.io.StringWriter.)]
     (try
       (let [watching (binding [*out* output] (browser-build/start-watching! options))
-            bundle   (io/file files-folder "css" "main.css")
+            bundle   (io/file files-folder "css" "base.css")
             code     (io/file files-folder "js" "cljs-runtime" "groundwork_browser_build.watch_check.entry.js")]
         (try
           (testing "the first compile: the page's code and its bundle, through the CSS step"
-            (is (.exists (io/file files-folder "js" "main.js")))
+            (is (.exists (io/file files-folder "js" "base.js")))
             (is (str/includes? (slurp code) "watch-check-one"))
             (is (str/includes? (slurp bundle) "color: #639;") "rebeccapurple, as lightningcss writes it"))
+          (testing "a page links its module and the root, in dependency order, the plain names"
+            (is (= {:stylesheets ["/css/base.css" "/css/page.css"] :scripts ["/js/base.js" "/js/page.js"]}
+                   (page/files-for-page {:files-folder files-folder :module :page})))
+            (is (= {:stylesheets ["/css/base.css"] :scripts ["/js/base.js"]}
+                   (page/files-for-page {:files-folder files-folder :module :base})))
+            (is (= {"base" "/css/base.css" "page" "/css/page.css"}
+                   (page/stylesheets-for-load-module {:files-folder files-folder})))
+            (is (every? #(.exists (io/file files-folder (subs % 1)))
+                        (mapcat val (page/files-for-page {:files-folder files-folder :module :page}))))
+            (is (str/includes? (slurp (io/file files-folder "css" "page.css")) ".watch-page")))
           (testing "shadow-cljs wrote its port into the cache folder, not .shadow-cljs"
             (is (.exists (io/file cache-folder "http.port"))))
           (testing "a stylesheet saved right after the start is rebundled, through the CSS step"

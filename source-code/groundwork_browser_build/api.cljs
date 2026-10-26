@@ -10,16 +10,18 @@
 
      [:div {:class \"order-card\"} …]   ; classes are plain text, the CSS plain CSS
 
-     ;; a module of the build's :modules, when a page needs it:
+     ;; a module of the build's :modules the page didn't start with, when it needs it:
      (-> (styles/load-module! {\"admin\" \"/css/admin.3F9A….css\"} \"admin\")
          (.then (fn [_] …)))   ; its code has run
 
    use-stylesheet is a macro (groundwork-browser-build.api's .clj half): it runs while
    compiling, so a missing file stops the build at that line. The build
    gathers each module's named stylesheets into its bundle, in the order
-   the namespaces are found; the page links main's: /css/main.css while
-   watching (saving a stylesheet updates the open page), a hashed name
-   when built.
+   the namespaces are found; the page links the bundles of the module it
+   starts with and of those it depends on
+   (groundwork-browser-build.page's files-for-page): /css/<module>.css
+   while watching (saving a stylesheet updates the open page), a hashed
+   name when built.
 
    load-module! loads a module through shadow-cljs's module loader, as
    script tags (never code fetched and evaluated: a content security
@@ -75,10 +77,12 @@
 
 (defn load-module!
   "Loads a module of the build's :modules, by name, and the modules it
-   depends on, each once: their stylesheets (stylesheets-by-module, each
-   module's bundle's address, {\"admin\" \"/css/admin.3F9A….css\"}, which
-   the page carries) first, then their code. A promise, settled once the
-   code has run, or failed."
+   depends on, each once (those the page started with are loaded
+   already): their stylesheets (stylesheets-by-module, each module's
+   bundle's address, {\"admin\" \"/css/admin.3F9A….css\"}, which the page
+   carries: groundwork-browser-build.page's stylesheets-for-load-module)
+   first, then their code. A promise, settled once the code has run, or
+   failed."
   [stylesheets-by-module module-name]
   (swap! known-stylesheets merge stylesheets-by-module)
   @module-loader

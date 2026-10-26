@@ -1,5 +1,7 @@
 # A build has modules loaded on demand, each with its own stylesheets, linked before its code
 
+> **Changed in part** by [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md) (2026-10-26, v0.5.0): `main` and `:entry` are gone; the build is its `:modules`, one the root (`:depends-on #{}`), and a page starts with any one of them, which comes with every module it depends on, linked and script-tagged at once; `load-module!` loads the others on demand. A stylesheet several modules name is in the last module, in load order, that each of them is or depends on, not the first one's. And by [files-for-page is the one reader of the build's manifests](2026-10-26-files-for-page-is-the-one-reader-of-the-manifests.md) (2026-10-26, v0.5.0): the page shell lists what `files-for-page` answers, and hands `load-module!` what `stylesheets-for-load-module` answers.
+
 > **Added to** by [A module names its start](2026-10-23-a-module-names-its-start.md) (2026-10-23, built on tidy-up, not released): each module writes out `:start`, its shadow-cljs `:init-fn`, nil for none.
 
 > **Changed in part** by [The family and its composer are groundwork](https://github.com/p4ulcristian/groundwork/blob/Starting-from-the-bottom/decisions/2026-10-23-the-family-and-its-composer-are-groundwork.md) (2026-10-23): manor, the family, and house, the composer, are both named groundwork now.

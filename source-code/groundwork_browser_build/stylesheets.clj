@@ -3,14 +3,14 @@
    build hook): the stylesheets the module's namespaces named with
    groundwork-browser-build.api's use-stylesheet, in the order the namespaces are found,
    each whole, one after another, after a /*! path */ comment naming it; a
-   stylesheet two modules name is in the first one's (one loads after the
-   other). With the build's :css, each bundle is then rewritten by the
+   stylesheet several modules name is in the last module, in load order,
+   that each of them is or depends on. With the build's :css, each bundle is then rewritten by the
    pinned lightningcss for the app's browsers (groundwork-browser-build.lightningcss);
    with :css nil, it is written as the files are.
 
-     <files-folder>/css/main.css, admin.css            while watching
-     <files-folder>/css/main.<hash>.css, admin.<hash>.css   a release build, with
-     <files-folder>/css/manifest.edn                   [{:module-id :main :output-name \"main.<hash>.css\"} …]
+     <files-folder>/css/base.css, admin.css                 while watching
+     <files-folder>/css/base.<hash>.css, admin.<hash>.css   a release build
+     <files-folder>/css/manifest.edn                        both: [{:module-id :base :output-name \"base.<hash>.css\"} …]
 
    The check: every .css file beside the build's namespaces must be named
    by one of them. A release build stops on any that isn't; while watching
@@ -19,6 +19,7 @@
    [groundwork-browser-build.lightningcss :as lightningcss]
    [clojure.edn]
    [clojure.java.io :as io]
+   [clojure.set :as set]
    [clojure.string :as str])
   (:import
    (java.security MessageDigest)))
@@ -35,15 +36,37 @@
   [build-state]
   (list-stylesheets-named-in build-state (:build-sources build-state)))
 
+(defn- find-modules-each-loads
+  "Each module's id with itself and every module it depends on, directly
+   or through others: what is loaded whenever it is. build-modules are in
+   load order, each after those it depends on."
+  [build-modules]
+  (reduce (fn [loads {:keys [module-id depends-on]}]
+            (assoc loads module-id (into #{module-id} (mapcat loads) depends-on)))
+          {}
+          build-modules))
+
 (defn- list-named-stylesheets-by-module
-  "Each module's named stylesheets, by module id, in the order its
-   namespaces are found; one named in two modules is the first one's."
+  "Each module's named stylesheets, by module id, in the order the
+   namespaces are found. A stylesheet named in one module is in its
+   bundle; one named in several is in the bundle of the last module, in
+   load order, that each of them is or depends on: in the first of a
+   chain, and in a module two sibling pages share (as shadow-cljs moves a
+   namespace two modules require), so whichever of them loads, it is in."
   [build-state]
-  (first (reduce (fn [[by-module taken] {:keys [module-id sources]}]
-                   (let [paths (vec (remove taken (list-stylesheets-named-in build-state sources)))]
-                     [(assoc by-module module-id paths) (into taken paths)]))
-                 [{} #{}]
-                 (:build-modules build-state))))
+  (let [build-modules (:build-modules build-state)
+        load-order    (map :module-id build-modules)
+        loads         (find-modules-each-loads build-modules)
+        named         (for [{:keys [module-id sources]} build-modules
+                            path (list-stylesheets-named-in build-state sources)]
+                        [module-id path])
+        modules-of    (reduce (fn [by-path [module-id path]] (update by-path path (fnil conj #{}) module-id)) {} named)
+        home-of       (fn [path]
+                        (let [loaded-by-all (apply set/intersection (map loads (modules-of path)))]
+                          (last (filter loaded-by-all load-order))))
+        paths         (distinct (map second named))]
+    (into {} (for [module-id load-order]
+               [module-id (vec (filter #(= module-id (home-of %)) paths))]))))
 
 (defn- list-unnamed-stylesheets
   "The .css files beside the build's own namespaces (in folders, not jars)
@@ -90,18 +113,18 @@
 
 (defn write-bundles!
   "Writes each module's bundle, rewritten (make-rewrite), into the folder:
-   <module>.css, or when released, <module>.<hash>.css, the hash of what
-   is written, and the manifest of them all."
+   <module>.css while watching, <module>.<hash>.css when released, the
+   hash of what is written; and the manifest of them all, css/manifest.edn,
+   both ways, which groundwork-browser-build.api's files-for-page reads."
   [paths-by-module files-folder release? rewrite]
-  (if release?
-    (spit (io/file files-folder "css" "manifest.edn")
-          (pr-str (vec (for [[module-id paths] (sort-by key paths-by-module)
-                             :let [text        (rewrite (make-bundle-text paths))
-                                   output-name (str (name module-id) "." (hash-text text) ".css")]]
-                         (do (write-if-changed! (io/file files-folder "css" output-name) text)
-                             {:module-id module-id :output-name output-name})))))
-    (doseq [[module-id paths] paths-by-module]
-      (write-if-changed! (io/file files-folder "css" (str (name module-id) ".css")) (rewrite (make-bundle-text paths))))))
+  (spit (io/file files-folder "css" "manifest.edn")
+        (pr-str (vec (for [[module-id paths] (sort-by key paths-by-module)
+                           :let [text        (rewrite (make-bundle-text paths))
+                                 output-name (if release?
+                                               (str (name module-id) "." (hash-text text) ".css")
+                                               (str (name module-id) ".css"))]]
+                       (do (write-if-changed! (io/file files-folder "css" output-name) text)
+                           {:module-id module-id :output-name output-name}))))))
 
 (defn- find-modified-times
   "Each named stylesheet's last save, by path, for those in folders (a

@@ -5,6 +5,7 @@
    problem at once. Both maps are closed."
   (:require
    [groundwork-browser-build.lightningcss :as lightningcss]
+   [clojure.string :as str]
    [malli.core :as malli]
    [malli.error :as malli-error]))
 
@@ -16,18 +17,67 @@
    :browser-2020 :browser-2021 :browser-2022 :browser-2023 :browser-2024 :browser-2025
    :es-next :es-unsupported])
 
+(defn- find-circle
+  "A circle of modules, each depending on the next and the last on the
+   first, as [:a :b :a], or nil. Depth first, each module walked once."
+  [modules]
+  (let [done (volatile! #{})]
+    (letfn [(visit [path module-id]
+              (cond
+                (some #{module-id} path) (conj (vec (drop-while #(not= module-id %) path)) module-id)
+                (@done module-id)        nil
+                :else (or (some #(visit (conj path module-id) %)
+                                (sort (get-in modules [module-id :depends-on])))
+                          (do (vswap! done conj module-id) nil))))]
+      (some #(visit [] %) (sort (keys modules))))))
+
+(defn find-module-problems
+  "What is wrong with how the modules depend on each other, every problem
+   at once, a vector of texts, empty for none: a module depending on one
+   the build doesn't have; not exactly one root (the module whose
+   :depends-on is #{}); modules depending on each other in a circle. With
+   one root and no circle, every other module depends on the root,
+   directly or through others."
+  [modules]
+  (let [unknown (into (sorted-map)
+                      (for [[module-id {:keys [depends-on]}] modules
+                            :let [missing (vec (sort (remove #(contains? modules %) depends-on)))]
+                            :when (seq missing)]
+                        [module-id missing]))
+        roots   (vec (sort (for [[module-id {:keys [depends-on]}] modules :when (empty? depends-on)] module-id)))
+        circle  (find-circle modules)]
+    (cond-> []
+      (seq unknown)  (conj (str "depend on modules the build doesn't have: " (pr-str unknown)))
+      (empty? roots) (conj "no root: one module, which every other depends on, has :depends-on #{}")
+      (next roots)   (conj (str "more than one root, each with :depends-on #{}: " (pr-str roots) "; one depends on nothing, every other on it"))
+      circle         (conj (str "depend on each other in a circle: " (str/join " -> " circle))))))
+
 (def modules-shape
-  "The modules loaded on demand, besides main, by name, every key written
-   out: each its :entries, the namespaces it holds; :depends-on, the
-   modules it needs first (main among them, or another of these); and
-   :start, the function run once when its code has loaded, before the
-   page that loaded it is drawn (shadow-cljs's :init-fn), or nil for none.
-   {} for none."
-  [:map-of [:and :keyword [:fn {:error/message "main is the entry's own module"} #(not= :main %)]]
-   [:map {:closed true}
-    [:entries [:vector {:min 1} :symbol]]
-    [:depends-on [:set {:min 1} :keyword]]
-    [:start [:maybe :qualified-symbol]]]])
+  "Every module of the build, by name, every key written out: each its
+   :entries, the namespaces it holds; :depends-on, the modules it needs
+   loaded first, #{} for the root; and :start, the function run once when
+   its code has loaded (shadow-cljs's :init-fn), or nil for none. One
+   module is the root, :depends-on #{}, and every other depends on it,
+   directly or through others; a circle is refused (find-module-problems).
+
+   A page starts with any one of them: it and every module it depends on
+   are linked and script-tagged at once (groundwork-browser-build.api's
+   files-for-page); any other is loaded on demand (load-module!). Whether a
+   module comes with the page or on demand is the page's choice, not the
+   module's.
+
+     {:base   {:entries [app.browser.base] :depends-on #{} :start nil}
+      :sheets {:entries [app.ui.sheets] :depends-on #{:base} :start nil}
+      :shop   {:entries [app.shop.boot] :depends-on #{:base :sheets} :start app.shop.boot/start!}
+      :site   {:entries [app.site.boot] :depends-on #{:base} :start app.site.boot/start!}}"
+  [:and
+   [:map-of :keyword
+    [:map {:closed true}
+     [:entries [:vector {:min 1} :symbol]]
+     [:depends-on [:set :keyword]]
+     [:start [:maybe :qualified-symbol]]]]
+   [:fn {:error/fn (fn [{:keys [value]} _] (str/join "; " (find-module-problems value)))}
+    #(empty? (find-module-problems %))]])
 
 (def resolve-shape
   "npm modules the build replaces, by name, {} for none: with a file
@@ -60,8 +110,7 @@
                        #(nil? (lightningcss/check-targets %))]]]]])
 
 (def ^:private build-entries
-  [[:entry :qualified-symbol]
-   [:modules modules-shape]
+  [[:modules modules-shape]
    [:files-folder :string]
    [:cache-folder :string]
    [:compile-threads [:int {:min 1}]]
@@ -82,12 +131,12 @@
   "start-watching!'s options, every key required.
 
    The build:
-   :entry: the function the page runs, app.browser.main/start!, in the
-   module main, which the page loads.
-   :modules: the modules the page loads on demand (groundwork-browser-build.api's
-   load-module!), {} for none: {:admin {:entries [app.admin.page]
-   :depends-on #{:main} :start app.admin.page/start!}}, :start nil for a
-   module with no start.
+   :modules: every module of the build (modules-shape), the root among
+   them: {:base {:entries [app.browser.base] :depends-on #{} :start nil}
+   :site {:entries [app.site.boot] :depends-on #{:base} :start
+   app.site.boot/start!}}. A page starts with one of them, which comes
+   with every module it depends on (files-for-page); the others are
+   loaded on demand (load-module!).
    :files-folder: where the files go, the folder the app's server serves at
    /: <files-folder>/js and <files-folder>/css.
    :cache-folder: shadow-cljs's cache (and its port files), \".shadow-cljs\".
@@ -109,7 +158,7 @@
    and the whole tarball; past it the build stops,
    :groundwork-browser-build/lightningcss-download-timed-out. Written out with :css
    nil too, which downloads nothing.
-   :preloads: namespaces loaded before the entry, while watching only
+   :preloads: namespaces loaded first, in the root module, while watching only
    (development tools: a debugger's), [] for none; a release build has
    none.
 
@@ -151,7 +200,7 @@
 
 (def release-options-shape
   "build-for-release!'s options, every key required: the build's
-   (:entry :modules :files-folder :cache-folder :compile-threads
+   (:modules :files-folder :cache-folder :compile-threads
    :output-feature-set :resolve :closure-defines :warnings-as-errors
    :silenced-warnings :css :lightningcss-download-timeout-ms, as
    start-watching! takes them; no :preloads, which

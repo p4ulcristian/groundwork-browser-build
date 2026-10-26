@@ -1,14 +1,17 @@
 (ns groundwork-browser-build.api
   "The browser's code, built by shadow-cljs from a build browser-build writes as
-   data; the app gives its entry (the function the page runs) and every
-   option (groundwork-browser-build.settings: every key required, none filled in). And the
-   macro a namespace names its stylesheets with, which the build bundles.
+   data; the app gives its modules (one the root, every other depending
+   on it) and every option (groundwork-browser-build.settings: every key
+   required, none filled in). And the macro a namespace names its
+   stylesheets with, which the build bundles.
 
      ;; development: compiles, then again on every save, and swaps the new
      ;; code into open tabs (the app's server starts it when it watches)
      (def watching (browser-build/start-watching!
                     {:log log                                  ; the app's (groundwork-logs's)
-                     :entry 'app.browser.main/start! :modules {} :files-folder \"target/public\"
+                     :modules {:base {:entries [app.browser.base] :depends-on #{} :start nil}
+                               :shop {:entries [app.shop.boot] :depends-on #{:base} :start app.shop.boot/start!}}
+                     :files-folder \"target/public\"
                      :cache-folder \".shadow-cljs\" :compile-threads 4 :output-feature-set :es2020
                      :resolve {} :closure-defines {} :warnings-as-errors #{} :silenced-warnings #{}
                      :css nil :lightningcss-download-timeout-ms 60000 :preloads [] :devtools-host \"localhost\" :devtools-port 9630 :devtools-url nil
@@ -18,10 +21,12 @@
      (browser-build/stop-watching! watching)
 
      ;; the deploy, once, before the app starts:
-     ;;   clojure -X:browser-release :entry app.browser.main/start! :files-folder '\"target/public\"' …
-     ;; writes target/public/js/main.<hash>.js, css/main.<hash>.css and a
-     ;; manifest for each, which the page shell reads; and a .js and a
-     ;; .css for each module loaded on demand (:modules)
+     ;;   clojure -X:browser-release :modules … :files-folder '\"target/public\"' …
+     ;; writes target/public/js/<module>.<hash>.js and css/<module>.<hash>.css
+     ;; for each module, and a manifest for each kind, which
+     ;; groundwork-browser-build.page reads: the files a page starting with
+     ;; a module links (files-for-page), and each module's bundle for
+     ;; load-module! (stylesheets-for-load-module)
 
      ;; in the app's browser code (groundwork-browser-build.api's ClojureScript half):
      (def order-card-styles (styles/use-stylesheet \"app/orders/order_card.css\"))
@@ -49,27 +54,31 @@
    (java.util.zip CRC32 Deflater DeflaterOutputStream)))
 
 (defn- make-shadow-modules
-  "shadow-cljs's modules: main, starting at the app's entry, and each
-   module loaded on demand, its :start as its :init-fn (none for nil)."
-  [entry modules]
-  (into {:main {:init-fn entry}}
+  "shadow-cljs's modules: each of the build's, its :start as its :init-fn
+   (none for nil); the root, :depends-on #{}, is shadow-cljs's default
+   module, which carries the module loader."
+  [modules]
+  (into {}
         (for [[module-id {:keys [entries depends-on start]}] modules]
           [module-id (cond-> {:entries entries :depends-on depends-on}
                        start (assoc :init-fn start))])))
 
 (defn make-build
   "The shadow-cljs build, :watch or :release, from start-watching!'s or
-   build-for-release!'s options: the module main, starting at the app's
-   entry, which the page loads, and the :modules loaded on demand, each
-   after those it depends on (shadow-cljs's module loader, always on), its
-   :start run once its code has loaded; the
+   build-for-release!'s options: the :modules, one the root and every
+   other depending on it, each its :start run once its code has loaded. A
+   page starts with any one of them, which comes with every module it
+   depends on, script-tagged (groundwork-browser-build.page's
+   files-for-page); any other is loaded on demand, after those it depends
+   on (load-module!, through shadow-cljs's module loader, always on). The
    files in <files-folder>/js, served at /js (the app's server serves the
-   files folder at /). After every compile the stylesheets each module's
-   namespaces named become that module's bundle in <files-folder>/css;
-   while watching, shadow-cljs swaps a changed bundle into open pages.
-   With :css, each bundle is rewritten by browser-build's pinned
+   files folder at /), and js/manifest.edn listing them. After every
+   compile the stylesheets each module's namespaces named become that
+   module's bundle in <files-folder>/css, and css/manifest.edn lists
+   them; while watching, shadow-cljs swaps a changed bundle into open
+   pages. With :css, each bundle is rewritten by browser-build's pinned
    lightningcss first."
-  [mode {:keys [entry modules files-folder cache-folder output-feature-set log resolve closure-defines
+  [mode {:keys [modules files-folder cache-folder output-feature-set log resolve closure-defines
                warnings-as-errors silenced-warnings css lightningcss-download-timeout-ms] :as options}]
   (case mode
     :watch   (settings/check-watch-options options)
@@ -79,7 +88,7 @@
              :target           :browser
              :output-dir       (str files-folder "/js")
              :asset-path       "/js"
-             :modules          (make-shadow-modules entry modules)
+             :modules          (make-shadow-modules modules)
              :module-loader    true
              ;; a release build has no log: it stops where a watch writes a warning
              :build-hooks      [(list `stylesheets/bundle-stylesheets {:files-folder files-folder :log log
@@ -191,9 +200,10 @@
           (shadow-services/stop-all runtime))))))
 
 (defn build-for-release!
-  "Compiles the browser's code once, optimized, each file's name with a
-   hash of its content (cached for ever, never stale), the manifests
-   listing them (js/manifest.edn, css/manifest.edn), and a gzipped copy of
+  "Compiles the browser's code once, optimized, each module's file named
+   with a hash of its content (cached for ever, never stale), the
+   manifests listing them (js/manifest.edn, css/manifest.edn, which
+   groundwork-browser-build.page reads), and a gzipped copy of
    each (file.gz), which the server sends to browsers that take gzip. The
    CSS isn't minified: gzipped, its spaces and comments cost almost
    nothing. Before any code is compiled, every npm package the build takes
@@ -203,7 +213,7 @@
    (groundwork-browser-build.npm). A stylesheet beside the namespaces that none names stops it.
    The options are groundwork-browser-build.settings/release-options-shape's, every key
    required, checked first. For the deploy: clojure -X:browser-release
-   :entry … :files-folder … (and every other option)."
+   :modules … :files-folder … (and every other option)."
   [{:keys [files-folder source-maps? gzip-level] :as options}]
   (let [build (make-build :release options)]
     (try
@@ -222,8 +232,8 @@
 
    Runs on the JVM while shadow-cljs compiles the namespace, where files
    can be read: a missing file stops the build here. The build gathers
-   every named stylesheet into the page's one bundle, in the order the
-   namespaces are found. Returns the path."
+   each module's named stylesheets into that module's bundle, in the
+   order the namespaces are found. Returns the path."
   [path]
   (when-not (string? path)
     (throw (ex-info "use-stylesheet takes the path as text, written out" {:type :groundwork-browser-build/bad-path :path path})))

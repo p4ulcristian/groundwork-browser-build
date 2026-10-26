@@ -2,6 +2,8 @@
 
 # Every value that sets behaviour is a setting; no hidden defaults
 
+> **Changed in part** by [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md) (2026-10-26, v0.5.0): `:entry` is gone and "one module, `main`" isn't fixed: the build is its `:modules`, one the root, each a file in `<files-folder>/js` served at `/js` and a bundle in `<files-folder>/css`.
+
 > **Changed in part** by [The app passes its log to a watch](2026-10-22-the-app-passes-its-log.md) (2026-10-22, v0.2.0): `start-watching!`'s options take the app's log, `:log`, required.
 
 > Changes in part [The browser build is Groundwork's: watched in development, built once by the deploy](2026-10-22-the-browser-build-is-groundworks.md) ("the app gives only its entry"), [Built files are gzipped, not minified](2026-10-22-built-files-are-gzipped-not-minified.md) (the gzip level was the JVM's default) and [showroom is its own library](2026-10-22-showroom-is-its-own-library.md) (shadow-cljs was its only dependency; malli joins it). Since v0.1.1.
