@@ -102,7 +102,7 @@
       (= :release mode)
       (-> (assoc-in [:compiler-options :optimizations] :advanced)
           ;; every npm package it takes code from is the app's own dependency, before compiling
-          (update :build-hooks conj (list `npm/check-npm-packages))
+          (update :build-hooks conj (list `npm/check-npm-packages (:package-installer options)))
           ;; the name carries the whole hash of the content (32 hex digits)
           (assoc :module-hash-names true))
 

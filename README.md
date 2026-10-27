@@ -42,7 +42,7 @@ production runs without shadow-cljs.
 | name | does |
 |---|---|
 | `start-watching!` `stop-watching!` | development: watch the build in this JVM; code and a saved stylesheet are swapped into open pages; `js/<module>.js`, `css/<module>.css` and a manifest for each, written at the first compile; browser-build's messages go to the app's `:log` |
-| `build-for-release!` | the deploy: `js/<module>.<hash>.js`, `css/<module>.<hash>.css`, `manifest.edn` for each kind, and `file.gz` beside each; stops on a stylesheet no namespace names, and, before compiling, on an npm package it needs that isn't installed as one of package.json's `dependencies` (not `devDependencies`) |
+| `build-for-release!` | the deploy: `js/<module>.<hash>.js`, `css/<module>.<hash>.css`, `manifest.edn` for each kind, and `file.gz` beside each; stops on a stylesheet no namespace names, and, before compiling, on an npm package it needs that isn't installed as one of package.json's `dependencies` (not `devDependencies`), by the record of the installer the app names, `:package-installer` (npm's `node_modules/.package-lock.json` or bun's `bun.lock`) |
 | `make-build` | the shadow-cljs build as data, `:watch` or `:release`: the `:modules`, one the root (`:depends-on #{}`) and every other depending on it, directly or through others, each with its `:start` run once its code has loaded ([why](decisions/2026-10-26-a-page-starts-with-a-module.md)); files in `<files-folder>/js`, served at `/js`; each module's stylesheet bundle in `<files-folder>/css` |
 | `files-for-page` | `.page`, on the server: the files a page that starts with a module links, `{:stylesheets [...] :scripts [...]}`, the module's and every one it depends on, in dependency order, as served paths; plain names watched, hashed names released; the one reader of the manifests ([why](decisions/2026-10-26-files-for-page-is-the-one-reader-of-the-manifests.md)) |
 | `stylesheets-for-load-module` | `.page`, on the server: every module's bundle by name, `{"base" "/css/base.css" …}`, for the page to hand `load-module!` |
@@ -69,7 +69,8 @@ production runs without shadow-cljs.
                                :css                nil              ; or the CSS step, below
                                :lightningcss-download-timeout-ms 60000   ; the pinned program's download, once per platform
                                :source-maps?       false            ; a .map beside each file, readable by anyone
-                               :gzip-level         9}}              ; the .gz copies, 1 (fast) to 9 (smallest)
+                               :gzip-level         9                ; the .gz copies, 1 (fast) to 9 (smallest)
+                               :package-installer  :npm}}           ; what installed node_modules, whose record the npm check reads: :npm or :bun
 
 ;; the app's server, in development only: loaded when it watches
 (def watching ((requiring-resolve 'groundwork-browser-build.api/start-watching!)

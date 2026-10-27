@@ -1,5 +1,7 @@
 # A release checks, before compiling, that every npm package it needs is the app's own dependency
 
+> **Changed in part** by [A release reads the record of the installer the app names](2026-10-27-a-release-reads-the-record-of-the-installer-the-app-names.md) (2026-10-27): the record is the one of the installer the release's `:package-installer` names, npm's or bun's `bun.lock`.
+
 > **Changed in part** by [The family and its composer are groundwork](https://github.com/p4ulcristian/groundwork/blob/Starting-from-the-bottom/decisions/2026-10-23-the-family-and-its-composer-are-groundwork.md) (2026-10-23): manor, the family, and house, the composer, are both named groundwork now.
 
 > The user's decision, 2026-10-23. Since v0.4.0. Adds to [Built files are gzipped, not minified; no node in the build](2026-10-22-built-files-are-gzipped-not-minified.md).

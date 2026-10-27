@@ -48,7 +48,8 @@
    :css                nil
    :lightningcss-download-timeout-ms 120000
    :source-maps?       false
-   :gzip-level         9})
+   :gzip-level         9
+   :package-installer  :npm})
 
 (def ^:private lines
   "What the tests' log has been handed, [level event data] each."
@@ -326,7 +327,7 @@
                                                                                   :files-folder "target/public"}))]
       (is (= :groundwork-browser-build/bad-options type))
       (is (= #{:cache-folder :compile-threads :output-feature-set :resolve :closure-defines :warnings-as-errors
-               :silenced-warnings :css :lightningcss-download-timeout-ms :source-maps? :gzip-level}
+               :silenced-warnings :css :lightningcss-download-timeout-ms :source-maps? :gzip-level :package-installer}
              (set (keys errors))))))
   (testing "a build has no :entry: the root module's :start is the page's first"
     (is (= {:entry ["disallowed key"]}

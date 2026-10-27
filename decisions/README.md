@@ -16,7 +16,7 @@ All but the last four were made while showroom was two libraries inside Groundwo
 - [Every value that sets behaviour is a setting; no hidden defaults](2026-10-22-every-value-that-sets-behaviour-is-a-setting.md), changed in part by [The app passes its log to a watch](2026-10-22-the-app-passes-its-log.md), [A build has modules loaded on demand](2026-10-23-a-build-has-modules-loaded-on-demand-each-styled-first.md) and [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md)
 - [The app passes its log to a watch; a release build has none](2026-10-22-the-app-passes-its-log.md)
 - [A build has modules loaded on demand, each with its own stylesheets, linked before its code](2026-10-23-a-build-has-modules-loaded-on-demand-each-styled-first.md), added to by [A module names its start](2026-10-23-a-module-names-its-start.md), changed in part by [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md) and [files-for-page is the one reader of the build's manifests](2026-10-26-files-for-page-is-the-one-reader-of-the-manifests.md)
-- [A release checks, before compiling, that every npm package it needs is the app's own dependency](2026-10-23-a-release-checks-its-npm-packages-are-the-apps-own.md)
+- [A release checks, before compiling, that every npm package it needs is the app's own dependency](2026-10-23-a-release-checks-its-npm-packages-are-the-apps-own.md), changed in part by [A release reads the record of the installer the app names](2026-10-27-a-release-reads-the-record-of-the-installer-the-app-names.md)
 - [A build names its module replacements, its defines and the warnings that stop it; no pass-through](2026-10-23-a-build-names-its-module-replacements-defines-and-warnings-that-stop-it.md), added to by [A build names the warnings it silences, and a watch its preloads](2026-10-23-a-build-names-the-warnings-it-silences-and-the-watch-its-preloads.md)
 - [showroom is renamed browser-build](2026-10-23-showroom-is-renamed-browser-build.md)
 - [A module names its start](2026-10-23-a-module-names-its-start.md) (built on tidy-up, not released), changed in part by [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md)
@@ -24,6 +24,7 @@ All but the last four were made while showroom was two libraries inside Groundwo
 - [Stylesheets are rewritten for the app's browsers by a pinned lightningcss program](2026-10-23-stylesheets-are-rewritten-for-the-apps-browsers-by-a-pinned-lightningcss.md) (built on tidy-up, not released)
 - [A page starts with a module, which comes with every module it depends on](2026-10-26-a-page-starts-with-a-module.md) (v0.5.0)
 - [files-for-page is the one reader of the build's manifests](2026-10-26-files-for-page-is-the-one-reader-of-the-manifests.md) (v0.5.0)
+- [A release reads the record of the installer the app names: npm's or bun's](2026-10-27-a-release-reads-the-record-of-the-installer-the-app-names.md) (v0.5.1)
 
 ## Replaced
 

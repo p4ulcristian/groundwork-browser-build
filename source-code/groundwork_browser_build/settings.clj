@@ -208,7 +208,10 @@
    :source-maps?: a .map beside each file, so the browser shows the
    ClojureScript a failure came from (anyone can read it);
    :gzip-level: how hard the .gz copies are squeezed, 1 (fast) to 9
-   (smallest).
+   (smallest);
+   :package-installer: what installed node_modules, whose record says
+   which packages are the app's own (groundwork-browser-build.npm): :npm
+   (node_modules/.package-lock.json) or :bun (bun.lock).
 
    No :log: a release build writes no line of browser-build's (a stylesheet no
    namespace names stops it), and its options come from clojure -X's
@@ -216,7 +219,8 @@
   (into [:map {:closed true}]
         (concat build-entries
                 [[:source-maps? :boolean]
-                 [:gzip-level [:int {:min 1 :max 9}]]])))
+                 [:gzip-level [:int {:min 1 :max 9}]]
+                 [:package-installer [:enum :npm :bun]]])))
 
 (defn check-data-for-shape
   "Returns the data; throws {:type kind :errors …} with every problem at
