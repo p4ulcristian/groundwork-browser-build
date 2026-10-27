@@ -12,8 +12,9 @@
      <files-folder>/css/base.<hash>.css, admin.<hash>.css   a release build
      <files-folder>/css/manifest.edn                        both: [{:module-id :base :output-name \"base.<hash>.css\"} …]
 
-   The check: every .css file beside the build's namespaces must be named
-   by one of them. A release build stops on any that isn't; while watching
+   The check: every .css file beside the build's ClojureScript namespaces
+   must be named by one of them (an npm package's own stylesheets aren't
+   the app's). A release build stops on any that isn't; while watching
    they are written to the app's log, :warn :groundwork-browser-build/unnamed-stylesheets."
   (:require
    [groundwork-browser-build.lightningcss :as lightningcss]
@@ -69,13 +70,16 @@
                [module-id (vec (filter #(= module-id (home-of %)) paths))]))))
 
 (defn- list-unnamed-stylesheets
-  "The .css files beside the build's own namespaces (in folders, not jars)
-   that no namespace names, as classpath paths."
+  "The .css files beside the build's own ClojureScript namespaces (in
+   folders, not jars; an npm package's JavaScript and the stylesheets it
+   ships beside it are its own) that no namespace names, as classpath
+   paths."
   [build-state named]
   (let [named (set named)]
     (->> (:build-sources build-state)
-         (keep #(let [{:keys [file resource-name]} (get-in build-state [:sources %])]
-                  (when file [(.getParentFile (io/file file)) (str (.getParent (io/file resource-name)))])))
+         (keep #(let [{:keys [type file resource-name]} (get-in build-state [:sources %])]
+                  (when (and file (= :cljs type))
+                    [(.getParentFile (io/file file)) (str (.getParent (io/file resource-name)))])))
          (distinct)
          (mapcat (fn [[folder resource-folder]]
                    (for [css (.listFiles ^java.io.File folder)
