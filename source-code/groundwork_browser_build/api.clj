@@ -46,12 +46,10 @@
    [shadow.cljs.devtools.server.common :as shadow-common]
    [shadow.cljs.devtools.server.runtime :as shadow-runtime]
    [shadow.runtime.services :as shadow-services]
+   [groundwork-browser-build.gzip :as gzip]
    [groundwork-browser-build.npm :as npm]
    [groundwork-browser-build.settings :as settings]
-   [groundwork-browser-build.stylesheets :as stylesheets])
-  (:import
-   (java.io OutputStream)
-   (java.util.zip CRC32 Deflater DeflaterOutputStream)))
+   [groundwork-browser-build.stylesheets :as stylesheets]))
 
 (defn- make-shadow-modules
   "shadow-cljs's modules: each of the build's, its :start as its :init-fn
@@ -159,29 +157,10 @@
   (shadow-server/stop!)
   :stopped)
 
-(defn- write-gzipped-copy!
-  "file.gz beside the file, squeezed at level (1 to 9), for the server to
-   send to browsers that take gzip. Written by hand, as GZIPOutputStream
-   does, since it takes no level: the header (no name, no time, so the same
-   file gives the same bytes), the deflated bytes, the CRC and the length."
-  [file level]
-  (let [bytes (java.nio.file.Files/readAllBytes (.toPath (io/file file)))
-        crc   (doto (CRC32.) (.update ^bytes bytes))
-        int-le (fn [^long n] (byte-array (map #(unchecked-byte (bit-and 0xff (bit-shift-right n (* 8 %)))) (range 4))))]
-    (with-open [^OutputStream out (io/output-stream (str file ".gz"))]
-      (.write out (byte-array (map unchecked-byte [0x1f 0x8b 8 0 0 0 0 0 0 0xff])))
-      (let [deflater (Deflater. (int level) true)
-            deflated (DeflaterOutputStream. out deflater)]
-        (.write deflated ^bytes bytes)
-        (.finish deflated)
-        (.end deflater))
-      (.write out ^bytes (int-le (.getValue crc)))
-      (.write out ^bytes (int-le (alength ^bytes bytes))))))
-
 (defn- gzip-built-files! [files-folder level]
   (doseq [kind ["js" "css"]
           {:keys [output-name]} (edn/read-string (slurp (io/file files-folder kind "manifest.edn")))]
-    (write-gzipped-copy! (io/file files-folder kind output-name) level)))
+    (gzip/write-gzipped-copy! (io/file files-folder kind output-name) level)))
 
 (defn- run-in-own-shadow-runtime
   "Runs (f) with a shadow-cljs runtime of this configuration, made for it

@@ -1,5 +1,7 @@
 # Built files are gzipped, not minified; no node in the build
 
+> **Changed in part** by [The gzipped copies are GZIPOutputStream's, at the build's level](2026-10-27-the-gzipped-copies-are-gzipoutputstreams.md) (2026-10-27, v0.5.2): the copies are written by GZIPOutputStream, its Deflater set to `:gzip-level` through a subclass, not by hand; the bytes are the same.
+
 > **Changed in part** by [Stylesheets are rewritten for the app's browsers by a pinned lightningcss program](2026-10-23-stylesheets-are-rewritten-for-the-apps-browsers-by-a-pinned-lightningcss.md) (2026-10-23, built on tidy-up, not released): with `:css`, nesting is flattened and prefixes added, by lightningcss as a downloaded program, still with no node; still nothing minified.
 
 > **Changed in part** by [Every value that sets behaviour is a setting](2026-10-22-every-value-that-sets-behaviour-is-a-setting.md) (2026-10-22, v0.1.1): the gzip level is `build-for-release!`'s `:gzip-level`, and the copies are written by hand (`GZIPOutputStream` takes no level).

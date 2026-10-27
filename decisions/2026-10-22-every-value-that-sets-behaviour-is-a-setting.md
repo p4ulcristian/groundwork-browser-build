@@ -2,6 +2,8 @@
 
 # Every value that sets behaviour is a setting; no hidden defaults
 
+> **Changed in part** by [The gzipped copies are GZIPOutputStream's, at the build's level](2026-10-27-the-gzipped-copies-are-gzipoutputstreams.md) (2026-10-27, v0.5.2): the copies are written by GZIPOutputStream, its Deflater set to `:gzip-level` through a subclass, not by hand; the bytes are the same.
+
 > **Changed in part** by [A page starts with a module](2026-10-26-a-page-starts-with-a-module.md) (2026-10-26, v0.5.0): `:entry` is gone and "one module, `main`" isn't fixed: the build is its `:modules`, one the root, each a file in `<files-folder>/js` served at `/js` and a bundle in `<files-folder>/css`.
 
 > **Changed in part** by [The app passes its log to a watch](2026-10-22-the-app-passes-its-log.md) (2026-10-22, v0.2.0): `start-watching!`'s options take the app's log, `:log`, required.
