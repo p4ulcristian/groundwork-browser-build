@@ -10,7 +10,7 @@
 
  :deps
  {;; the compiler, the watcher and the hot swap; ClojureScript comes with it
-  thheller/shadow-cljs {:mvn/version "3.5.7"}
+  thheller/shadow-cljs {:mvn/version "3.5.11"}
   ;; the options, checked before anything is built
   metosin/malli        {:mvn/version "0.20.3"}
   ;; npm's record of what is installed and why (node_modules/.package-lock.json)
