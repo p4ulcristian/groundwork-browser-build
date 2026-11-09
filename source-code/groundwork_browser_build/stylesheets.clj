@@ -12,11 +12,17 @@
      <files-folder>/css/base.<hash>.css, admin.<hash>.css   a release build
      <files-folder>/css/manifest.edn                        both: [{:module-id :base :output-name \"base.<hash>.css\"} …]
 
-   The check: every .css file beside the build's ClojureScript namespaces
+   The checks: every .css file beside the build's ClojureScript namespaces
    must be named by one of them (an npm package's own stylesheets aren't
    the app's). A release build stops on any that isn't; while watching
-   they are written to the app's log, :warn :groundwork-browser-build/unnamed-stylesheets."
+   they are written to the app's log, :warn :groundwork-browser-build/unnamed-stylesheets.
+   And every var(--name) without a fallback in the named stylesheets must
+   name a custom property that is there (groundwork-browser-build.custom-properties):
+   by the build's :on-undefined-custom-property, a release stops (:fail) or
+   writes them to standard error (:warn); a watch writes them to the app's
+   log, after every compile and every rebundle of a saved stylesheet."
   (:require
+   [groundwork-browser-build.custom-properties :as custom-properties]
    [groundwork-browser-build.lightningcss :as lightningcss]
    [clojure.edn]
    [clojure.java.io :as io]
@@ -88,6 +94,24 @@
          (remove named)
          (sort))))
 
+(defn- list-own-code-files
+  "The files of the build's own ClojureScript namespaces (.cljs, .cljc;
+   in folders, not jars), which may set custom properties."
+  [build-state]
+  (->> (:build-sources build-state)
+       (keep #(let [{:keys [type file]} (get-in build-state [:sources %])]
+                (when (and file (= :cljs type)) (str file))))
+       (distinct)))
+
+(defn- check-custom-properties!
+  "The custom-properties check over the named stylesheets, as they are
+   now, told as the build's :on-undefined-custom-property says
+   (custom-properties/tell-undefined-uses!)."
+  [paths {:keys [set-from-code set-elsewhere] :as how}]
+  (custom-properties/tell-undefined-uses!
+   (custom-properties/find-undefined-uses (for [path paths] [path (slurp (io/resource path))]) set-from-code set-elsewhere)
+   how))
+
 (defn make-bundle-text
   "The bundle: each stylesheet, whole, after a comment naming it, /*! … */,
    which lightningcss keeps."
@@ -142,31 +166,45 @@
 (def last-bundle
   "The last bundles written while watching, for re-bundling when a
    stylesheet is saved: {:paths-by-module {module-id […]} :files-folder …
-   :rewrite f :times {path saved-at}}, the times read before the
-   stylesheets were, so a save while bundling is seen at the next check."
+   :rewrite f :times {path saved-at} :custom-properties {…}}, the times
+   read before the stylesheets were, so a save while bundling is seen at
+   the next check; :custom-properties, how the custom-properties check runs
+   on a rebundle (what the code set at the last compile, the settings, the
+   log)."
   (atom nil))
 
 (defn bundle-stylesheets
-  "The build hook, after every compile: the check, then the bundle,
+  "The build hook, after every compile: the checks, then the bundle,
    rewritten as the build's :css says."
   {:shadow.build/stage :flush}
-  [build-state {:keys [files-folder log css cache-folder lightningcss-download-timeout-ms]}]
-  (let [release?        (= :release (:shadow.build/mode build-state))
-        named           (list-named-stylesheets build-state)
-        unnamed         (list-unnamed-stylesheets build-state named)
-        paths-by-module (list-named-stylesheets-by-module build-state)]
+  [build-state {:keys [files-folder log css cache-folder lightningcss-download-timeout-ms
+                       on-undefined-custom-property custom-properties-set-elsewhere]}]
+  (let [release?          (= :release (:shadow.build/mode build-state))
+        named             (list-named-stylesheets build-state)
+        unnamed           (list-unnamed-stylesheets build-state named)
+        paths-by-module   (list-named-stylesheets-by-module build-state)
+        custom-properties {:release?      release?
+                           :on-undefined  on-undefined-custom-property
+                           :log           log
+                           :set-elsewhere custom-properties-set-elsewhere
+                           :set-from-code (custom-properties/find-names-set-from-files (list-own-code-files build-state))}]
     (when (seq unnamed)
       (if release?
         (throw (ex-info (str "Stylesheets no namespace names (name each with styles/use-stylesheet):\n  "
                              (str/join "\n  " unnamed))
                         {:type :groundwork-browser-build/unnamed-stylesheets :stylesheets (vec unnamed)}))
         (log :warn :groundwork-browser-build/unnamed-stylesheets {:groundwork-browser-build/stylesheets (vec unnamed)})))
-    (let [rewrite (make-rewrite css cache-folder lightningcss-download-timeout-ms)]
-      (if release?
-        (write-bundles! paths-by-module files-folder true rewrite)
-        (let [times (find-modified-times named)]
-          (write-bundles! paths-by-module files-folder false rewrite)
-          (reset! last-bundle {:paths-by-module paths-by-module :files-folder files-folder :rewrite rewrite :times times}))))
+    ;; the times before the stylesheets are read, so a save while bundling is seen at the next check
+    (let [times   (when-not release? (find-modified-times named))
+          rewrite (make-rewrite css cache-folder lightningcss-download-timeout-ms)]
+      (check-custom-properties! named custom-properties)
+      (write-bundles! paths-by-module files-folder release? rewrite)
+      (when-not release?
+        (reset! last-bundle {:paths-by-module   paths-by-module
+                             :files-folder      files-folder
+                             :rewrite           rewrite
+                             :times             times
+                             :custom-properties custom-properties})))
     build-state))
 
 (defn start-watching-stylesheets!
@@ -177,15 +215,19 @@
    before: a save before the thread first runs is still seen. Runs on a
    thread of its own, which a failed check doesn't end (it says why and
    checks again). Returns a function that stops it. A failed check is
-   written to log, :error :groundwork-browser-build/bundle-failed."
+   written to log, :error :groundwork-browser-build/bundle-failed. A
+   rebundle checks the custom properties again, with what the code set at
+   the last compile."
   [check-every-ms log]
   (let [running? (atom true)
         check!   (fn []
-                   (let [{:keys [paths-by-module files-folder rewrite times]} @last-bundle
-                         now (find-modified-times (distinct (apply concat (vals paths-by-module))))]
+                   (let [{:keys [paths-by-module files-folder rewrite times custom-properties]} @last-bundle
+                         paths (distinct (apply concat (vals paths-by-module)))
+                         now   (find-modified-times paths)]
                      ;; nothing until a compile has bundled
                      (when (and files-folder (not= times now))
                        (write-bundles! paths-by-module files-folder false rewrite)
+                       (check-custom-properties! paths custom-properties)
                        (swap! last-bundle #(if (= paths-by-module (:paths-by-module %)) (assoc % :times now) %)))))
         thread   (Thread.
                   ^Runnable

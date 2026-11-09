@@ -11,7 +11,10 @@ new code swapped into open tabs. For the deploy it is built once: hashed
 names, a manifest, a gzipped copy of each file. **The stylesheets:** a
 namespace names each stylesheet it needs, as a query names its `.sql` file;
 the build gathers them into a bundle per module, in the order the namespaces
-are found, and checks that none beside the code is left unnamed. **The CSS
+are found, and checks that none beside the code is left unnamed, and that
+every `var(--name)` without a fallback names a custom property that is
+there (declared by a stylesheet of the build, set by its ClojureScript,
+or named by the app as set elsewhere). **The CSS
 step:** with `:css`, each bundle is rewritten by the lightningcss program browser-build pins
 program for the browsers the app supports (nesting flattened, `-webkit-`
 prefixes added, nothing minified); with `:css nil`, it is written as the
@@ -42,7 +45,7 @@ production runs without shadow-cljs.
 | name | does |
 |---|---|
 | `start-watching!` `stop-watching!` | development: watch the build in this JVM; code and a saved stylesheet are swapped into open pages; `js/<module>.js`, `css/<module>.css` and a manifest for each, written at the first compile; browser-build's messages go to the app's `:log` |
-| `build-for-release!` | the deploy: `js/<module>.<hash>.js`, `css/<module>.<hash>.css`, `manifest.edn` for each kind, and `file.gz` beside each; stops on a stylesheet no namespace names, and, before compiling, on an npm package it needs that isn't installed as one of package.json's `dependencies` (not `devDependencies`), by the record of the installer the app names, `:package-installer` (npm's `node_modules/.package-lock.json` or bun's `bun.lock`) |
+| `build-for-release!` | the deploy: `js/<module>.<hash>.js`, `css/<module>.<hash>.css`, `manifest.edn` for each kind, and `file.gz` beside each; stops on a stylesheet no namespace names, on a `var()` of a custom property nobody sets under `:on-undefined-custom-property :fail` ([below](#custom-properties)), and, before compiling, on an npm package it needs that isn't installed as one of package.json's `dependencies` (not `devDependencies`), by the record of the installer the app names, `:package-installer` (npm's `node_modules/.package-lock.json` or bun's `bun.lock`) |
 | `make-build` | the shadow-cljs build as data, `:watch` or `:release`: the `:modules`, one the root (`:depends-on #{}`) and every other depending on it, directly or through others, each with its `:start` run once its code has loaded ([why](decisions/2026-10-26-a-page-starts-with-a-module.md)); files in `<files-folder>/js`, served at `/js`; each module's stylesheet bundle in `<files-folder>/css` |
 | `files-for-page` | `.page`, on the server: the files a page that starts with a module links, `{:stylesheets [...] :scripts [...]}`, the module's and every one it depends on, in dependency order, as served paths; plain names watched, hashed names released; the one reader of the manifests ([why](decisions/2026-10-26-files-for-page-is-the-one-reader-of-the-manifests.md)) |
 | `stylesheets-for-load-module` | `.page`, on the server: every module's bundle by name, `{"base" "/css/base.css" …}`, for the page to hand `load-module!` |
@@ -68,6 +71,8 @@ production runs without shadow-cljs.
                                :silenced-warnings  #{}              ; warnings not shown: #{:unreachable-code}
                                :css                nil              ; or the CSS step, below
                                :lightningcss-download-timeout-ms 60000   ; the pinned program's download, once per platform
+                               :on-undefined-custom-property    :fail   ; a var(--name) nobody sets: :fail or :warn, below
+                               :custom-properties-set-elsewhere #{}     ; names set where the build can't see: #{"--name"}
                                :source-maps?       false            ; a .map beside each file, readable by anyone
                                :gzip-level         9                ; the .gz copies, 1 (fast) to 9 (smallest)
                                :package-installer  :npm}}           ; what installed node_modules, whose record the npm check reads: :npm or :bun
@@ -86,6 +91,8 @@ production runs without shadow-cljs.
                 :silenced-warnings         #{}
                 :css                       nil             ; or the CSS step, below
                 :lightningcss-download-timeout-ms 60000
+                :on-undefined-custom-property    :fail  ; a watch logs either way and goes on
+                :custom-properties-set-elsewhere #{}
                 :preloads                  []              ; development only: namespaces loaded first, in the root
                 :devtools-host             "localhost"     ; where open pages connect for new code; it can run code in this JVM
                 :devtools-port             9630            ; a port in use is refused; 0 picks a free one
@@ -145,8 +152,27 @@ the build, named. Each file
 in a bundle follows a `/*! path */` comment naming it, which lightningcss
 keeps ([why](decisions/2026-10-23-stylesheets-are-rewritten-for-the-apps-browsers-by-a-pinned-lightningcss.md)).
 
-browser-build prints nothing: while watching, a stylesheet no namespace names
-(`:groundwork-browser-build/unnamed-stylesheets`) and a failed rebundle
+<a id="custom-properties"></a>**Custom properties.** `var(--name)` naming a custom property nobody
+sets is valid CSS, and the browser drops the whole declaration without a
+word. So every `var(--name)` without a fallback in a named stylesheet must
+name one that is there: declared (`--name: …`) or registered
+(`@property --name`) by a stylesheet of the build, any module's; set by
+the build's own ClojureScript, a string that is only the name
+(`{"--progress" pct}` in a `:style`, `.setProperty`'s argument), a keyword
+`:--name`, or `--name: …` inside a string; or in
+`:custom-properties-set-elsewhere` (the server's HTML, a stylesheet linked
+outside the build, an npm package's JavaScript, a name built at run time).
+`var(--name, fallback)` is always fine. Each use is named by its
+stylesheet and line, `app/orders/order_card.css:7 var(--space-7)`.
+`:on-undefined-custom-property :fail` stops a release
+(`:groundwork-browser-build/undefined-custom-properties`, with `:uses`) and
+logs at `:error` while watching; `:warn` writes them to a release's
+standard error and builds, and logs at `:warn` while watching. A watch goes
+on either way ([why](decisions/2026-11-09-a-stylesheet-uses-only-custom-properties-that-are-there.md)).
+
+browser-build prints nothing but that `:warn` list: while watching, a stylesheet no namespace names
+(`:groundwork-browser-build/unnamed-stylesheets`), a `var()` of a custom property nobody sets
+(`:groundwork-browser-build/undefined-custom-properties`) and a failed rebundle
 (`:groundwork-browser-build/bundle-failed`) go to the app's log, `(log level event data)` as
 [groundwork-logs](https://github.com/p4ulcristian/groundwork-logs) makes it, under `:log`. A
 release build takes none: it stops on what a watch warns about
@@ -172,6 +198,7 @@ can be cached for ever.
 
 ```sh
 clojure -X:test     # release-builds small builds (the bundle, a missing and an unnamed stylesheet,
+                    # custom properties declared, set from code, set elsewhere and nobody's,
                     # the CSS step, several page modules and on-demand ones: the files each page
                     # links), the refusals, and one real watch: compiled, the files a page links,
                     # a saved stylesheet and namespace; downloads lightningcss 1.33.0 from npm's

@@ -1,0 +1,10 @@
+/* var(--in-a-comment) is not a use */
+.properties-check {
+  padding: var(--space-8);
+  rotate: var(--angle);
+  width: var(--progress);
+  height: var(--row-height);
+  color: var(--accent, tomato);
+  margin: var(--from-server);
+  gap: var( --nowhere );
+}
