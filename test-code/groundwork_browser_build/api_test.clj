@@ -47,6 +47,8 @@
    :silenced-warnings  #{}
    :css                nil
    :lightningcss-download-timeout-ms 120000
+   :on-undefined-custom-property :fail
+   :custom-properties-set-elsewhere #{}
    :source-maps?       false
    :gzip-level         9
    :package-installer  :npm})
@@ -75,6 +77,8 @@
    :silenced-warnings         #{}
    :css                       nil
    :lightningcss-download-timeout-ms 120000
+   :on-undefined-custom-property :fail
+   :custom-properties-set-elsewhere #{}
    :preloads                  []
    :devtools-host             "localhost"
    :devtools-port             0
@@ -321,13 +325,45 @@
     (is (re-find #"forgotten\.css" (str message)))
     (is (not (re-find #"named\.css\n" (str message))))))
 
+(deftest a-release-uses-only-custom-properties-that-are-there
+  (let [options (make-release-options 'groundwork-browser-build.properties-check.entry/start!)
+        refusal #(try (with-out-str (browser-build/build-for-release! %)) :built
+                      (catch Exception e (some (fn [cause] (when (:uses (ex-data cause)) (ex-data cause)))
+                                               (take-while some? (iterate (fn [^Throwable t] (.getCause t)) e)))))]
+    (testing ":fail stops the release, naming each use nobody sets, its stylesheet and line; declared, registered,
+              set from the code, given a fallback and set elsewhere are there"
+      (is (= {:type :groundwork-browser-build/undefined-custom-properties
+              :uses [{:stylesheet "groundwork_browser_build/properties_check/entry.css" :line 9 :custom-property "--nowhere"}]}
+             (refusal (assoc options :custom-properties-set-elsewhere #{"--from-server"}))))
+      (is (= ["--from-server" "--nowhere"]
+             (map :custom-property (:uses (refusal options))))
+          "not named as set elsewhere: undefined too"))
+    (testing ":warn writes them to standard error and builds"
+      (let [err (java.io.StringWriter.)]
+        (is (= :built (binding [*err* err] (refusal (assoc options :on-undefined-custom-property :warn)))))
+        (is (str/includes? (str err) "groundwork_browser_build/properties_check/entry.css:9 var(--nowhere)"))))))
+
+(deftest the-custom-properties-check-is-written-out
+  (is (= {:on-undefined-custom-property ["should be either :fail or :warn"]}
+         (:errors (find-refusal #(browser-build/make-build :release (assoc (make-release-options 'app.main/start!)
+                                                                      :on-undefined-custom-property :ignore))))))
+  (is (= {:custom-properties-set-elsewhere #{["should be a custom property's name, \"--name\""]}}
+         (:errors (find-refusal #(browser-build/make-build :release (assoc (make-release-options 'app.main/start!)
+                                                                      :custom-properties-set-elsewhere #{"from-server"}))))))
+  (is (= #{:on-undefined-custom-property :custom-properties-set-elsewhere}
+         (set (keys (:errors (find-refusal #(browser-build/make-build :watch (dissoc (make-watch-options)
+                                                                            :on-undefined-custom-property
+                                                                            :custom-properties-set-elsewhere)))))))
+      "a watch writes both out too"))
+
 (deftest every-option-is-required
   (testing "build-for-release! names each missing option, before anything is built"
     (let [{:keys [type errors]} (find-refusal #(browser-build/build-for-release! {:modules (make-one-module 'app.browser.main/start!)
                                                                                   :files-folder "target/public"}))]
       (is (= :groundwork-browser-build/bad-options type))
       (is (= #{:cache-folder :compile-threads :output-feature-set :resolve :closure-defines :warnings-as-errors
-               :silenced-warnings :css :lightningcss-download-timeout-ms :source-maps? :gzip-level :package-installer}
+               :silenced-warnings :css :lightningcss-download-timeout-ms :on-undefined-custom-property
+               :custom-properties-set-elsewhere :source-maps? :gzip-level :package-installer}
              (set (keys errors))))))
   (testing "a build has no :entry: the root module's :start is the page's first"
     (is (= {:entry ["disallowed key"]}
@@ -431,6 +467,14 @@
           (testing "a stylesheet saved right after the start is rebundled, through the CSS step"
             (spit css-file ".watch-check { & .inner { color: tomato; } }\n")
             (is (wait-until #(str/includes? (slurp bundle) ".watch-check .inner {"))))
+          (testing "a saved stylesheet using a custom property nobody sets: the app's log, :error for :fail, and the watch goes on"
+            (reset! lines [])
+            (spit css-file ".watch-check { & .inner { gap: var(--nowhere); } }\n")
+            (is (wait-until #(some #{[:error :groundwork-browser-build/undefined-custom-properties
+                                      {:groundwork-browser-build/uses [{:stylesheet "groundwork_browser_build/watch_check/entry.css"
+                                                                        :line 1 :custom-property "--nowhere"}]}]}
+                                   @lines)))
+            (is (wait-until #(str/includes? (slurp bundle) "gap: var(--nowhere)")) "rebundled all the same"))
           (testing "a saved namespace is compiled again; a stylesheet no namespace names is written to the log"
             (reset! lines [])
             (spit stray-file ".stray { color: red; }\n")

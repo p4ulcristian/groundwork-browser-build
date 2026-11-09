@@ -109,6 +109,10 @@
                       [:fn {:error/fn (fn [{:keys [value]} _] (lightningcss/check-targets value))}
                        #(nil? (lightningcss/check-targets %))]]]]])
 
+(def custom-property-name-shape
+  "A custom property's name, \"--name\"."
+  [:re {:error/message "should be a custom property's name, \"--name\""} #"^--[\w-]+$"])
+
 (def ^:private build-entries
   [[:modules modules-shape]
    [:files-folder :string]
@@ -120,7 +124,9 @@
    [:warnings-as-errors [:set :keyword]]
    [:silenced-warnings [:set :keyword]]
    [:css css-shape]
-   [:lightningcss-download-timeout-ms [:int {:min 1}]]])
+   [:lightningcss-download-timeout-ms [:int {:min 1}]]
+   [:on-undefined-custom-property [:enum :fail :warn]]
+   [:custom-properties-set-elsewhere [:set custom-property-name-shape]]])
 
 (def ^:private repl-server-shape
   [:maybe [:map {:closed true}
@@ -158,6 +164,19 @@
    and the whole tarball; past it the build stops,
    :groundwork-browser-build/lightningcss-download-timed-out. Written out with :css
    nil too, which downloads nothing.
+   :on-undefined-custom-property: what a var(--name) without a fallback
+   does when no stylesheet of the build declares --name, the build's
+   ClojureScript doesn't set it and :custom-properties-set-elsewhere doesn't
+   name it (the browser drops such a declaration;
+   groundwork-browser-build.custom-properties): :fail, a release stops
+   (:groundwork-browser-build/undefined-custom-properties) and a watch
+   writes it to the app's log at :error; :warn, a release writes it to
+   standard error and goes on, a watch logs it at :warn. A watch goes on
+   watching either way.
+   :custom-properties-set-elsewhere: the custom properties set where the
+   build can't see, #{\"--name\"}, #{} for none: by the server's HTML, a
+   stylesheet linked outside the build, an npm package's JavaScript, or a
+   name the code builds at run time.
    :preloads: namespaces loaded first, in the root module, while watching only
    (development tools: a debugger's), [] for none; a release build has
    none.
@@ -182,8 +201,10 @@
    for a save, which rebundles them and swaps the bundle into open pages.
 
    :log: the app's log function, (log level event data), made by groundwork-logs:
-   a stylesheet no namespace names (:groundwork-browser-build/unnamed-stylesheets) and a
-   rebundle that failed (:groundwork-browser-build/bundle-failed) are written to it."
+   a stylesheet no namespace names (:groundwork-browser-build/unnamed-stylesheets), a
+   var() of a custom property nobody sets
+   (:groundwork-browser-build/undefined-custom-properties) and a rebundle that
+   failed (:groundwork-browser-build/bundle-failed) are written to it."
   (into [:map {:closed true}]
         (concat build-entries
                 [[:log [fn? {:error/message "should be the app's log function, made by groundwork-logs"}]]
@@ -202,9 +223,9 @@
   "build-for-release!'s options, every key required: the build's
    (:modules :files-folder :cache-folder :compile-threads
    :output-feature-set :resolve :closure-defines :warnings-as-errors
-   :silenced-warnings :css :lightningcss-download-timeout-ms, as
-   start-watching! takes them; no :preloads, which
-   are for development), and
+   :silenced-warnings :css :lightningcss-download-timeout-ms
+   :on-undefined-custom-property :custom-properties-set-elsewhere, as
+   start-watching! takes them; no :preloads, which are for development), and
    :source-maps?: a .map beside each file, so the browser shows the
    ClojureScript a failure came from (anyone can read it);
    :gzip-level: how hard the .gz copies are squeezed, 1 (fast) to 9
@@ -213,9 +234,11 @@
    which packages are the app's own (groundwork-browser-build.npm): :npm
    (node_modules/.package-lock.json) or :bun (bun.lock).
 
-   No :log: a release build writes no line of browser-build's (a stylesheet no
-   namespace names stops it), and its options come from clojure -X's
-   :exec-args, where a function can't be written."
+   No :log: a release build writes no line of browser-build's but the
+   custom properties nobody sets under :on-undefined-custom-property :warn,
+   to standard error (a stylesheet no namespace names stops it), and its
+   options come from clojure -X's :exec-args, where a function can't be
+   written."
   (into [:map {:closed true}]
         (concat build-entries
                 [[:source-maps? :boolean]

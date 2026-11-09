@@ -1,5 +1,7 @@
 # A namespace names its stylesheets
 
+> **Changed in part** by [A stylesheet uses only custom properties that are there](2026-11-09-a-stylesheet-uses-only-custom-properties-that-are-there.md) (2026-11-09, not released): a `var(--name)` without a fallback of a custom property nobody sets is the build's to check, not the app's taste.
+
 > **Changed in part** by [A def names its stylesheet, as a query names its .sql file](2026-10-22-a-def-names-its-stylesheet-as-a-query-names-its-sql.md) (2026-10-22): a stylesheet is named by `(styles/use-stylesheet "…")` in the namespace, not in its ns metadata.
 
 > **Changed in part** by [Built files are gzipped, not minified](2026-10-22-built-files-are-gzipped-not-minified.md) (2026-10-22): no lightningcss, no `:targets`; the bundle is gzipped.

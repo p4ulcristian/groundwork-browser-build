@@ -1,5 +1,7 @@
 # The app passes its log to a watch; a release build has none
 
+> **Changed in part** by [A stylesheet uses only custom properties that are there](2026-11-09-a-stylesheet-uses-only-custom-properties-that-are-there.md) (2026-11-09, not released): a watch logs `:groundwork-browser-build/undefined-custom-properties` too; a release under `:on-undefined-custom-property :warn` writes those uses to standard error, its one line of browser-build's.
+
 > Changes in part [A def names its stylesheet](2026-10-22-a-def-names-its-stylesheet-as-a-query-names-its-sql.md) (unnamed stylesheets were printed while watching) and [Every value that sets behaviour is a setting](2026-10-22-every-value-that-sets-behaviour-is-a-setting.md) (`start-watching!`'s options). Since v0.2.0.
 
 **Decision:** showroom prints nothing. `start-watching!`'s options take the app's log, `(log level event data)` as logbook makes it, as a required key, `:log`, checked by malli as a function with the other options (`:showroom/bad-options`). What it wrote with `println` goes there:

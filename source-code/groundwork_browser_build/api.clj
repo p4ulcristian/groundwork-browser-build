@@ -14,7 +14,9 @@
                      :files-folder \"target/public\"
                      :cache-folder \".shadow-cljs\" :compile-threads 4 :output-feature-set :es2020
                      :resolve {} :closure-defines {} :warnings-as-errors #{} :silenced-warnings #{}
-                     :css nil :lightningcss-download-timeout-ms 60000 :preloads [] :devtools-host \"localhost\" :devtools-port 9630 :devtools-url nil
+                     :css nil :lightningcss-download-timeout-ms 60000
+                     :on-undefined-custom-property :fail :custom-properties-set-elsewhere #{}
+                     :preloads [] :devtools-host \"localhost\" :devtools-port 9630 :devtools-url nil
                      :nrepl nil :socket-repl nil
                      :hot-reload? true :reload-strategy :optimized :hud #{:errors :warnings :progress}
                      :stylesheet-check-every-ms 300}))
@@ -75,9 +77,13 @@
    module's bundle in <files-folder>/css, and css/manifest.edn lists
    them; while watching, shadow-cljs swaps a changed bundle into open
    pages. With :css, each bundle is rewritten by browser-build's pinned
-   lightningcss first."
+   lightningcss first. Before it is written, every var(--name) without a
+   fallback in the named stylesheets must name a custom property that is
+   there (groundwork-browser-build.custom-properties), as
+   :on-undefined-custom-property says."
   [mode {:keys [modules files-folder cache-folder output-feature-set log resolve closure-defines
-               warnings-as-errors silenced-warnings css lightningcss-download-timeout-ms] :as options}]
+               warnings-as-errors silenced-warnings css lightningcss-download-timeout-ms
+               on-undefined-custom-property custom-properties-set-elsewhere] :as options}]
   (case mode
     :watch   (settings/check-watch-options options)
     :release (settings/check-release-options options))
@@ -91,7 +97,9 @@
              ;; a release build has no log: it stops where a watch writes a warning
              :build-hooks      [(list `stylesheets/bundle-stylesheets {:files-folder files-folder :log log
                                                                      :css css :cache-folder cache-folder
-                                                                     :lightningcss-download-timeout-ms lightningcss-download-timeout-ms})]
+                                                                     :lightningcss-download-timeout-ms lightningcss-download-timeout-ms
+                                                                     :on-undefined-custom-property on-undefined-custom-property
+                                                                     :custom-properties-set-elsewhere custom-properties-set-elsewhere})]
              :js-options       {:resolve resolve}
              :compiler-options {:output-feature-set output-feature-set
                                 :closure-defines    closure-defines
@@ -189,7 +197,9 @@
    code from must be installed as the app's own dependency (in
    package.json's dependencies, not devDependencies): one missing, or
    installed only for development, stops the build, named
-   (groundwork-browser-build.npm). A stylesheet beside the namespaces that none names stops it.
+   (groundwork-browser-build.npm). A stylesheet beside the namespaces that none names stops it,
+   and, with :on-undefined-custom-property :fail, a var(--name) without a
+   fallback of a custom property nobody sets.
    The options are groundwork-browser-build.settings/release-options-shape's, every key
    required, checked first. For the deploy: clojure -X:browser-release
    :modules … :files-folder … (and every other option)."
